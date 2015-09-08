@@ -80,10 +80,8 @@ func (t *Token) SigningString() (string, error) {
 	return strings.Join(parts, "."), nil
 }
 
-// Parse, validate, and return a token.
-// keyFunc will receive the parsed token and should return the key for validating.
-// If everything is kosher, err will be nil
-func Parse(tokenString string, keyFunc Keyfunc) (*Token, error) {
+// Parse and return a token without signature verification.
+func ParseUnverified(tokenString string) (*Token, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
 		return nil, &ValidationError{err: "token contains an invalid number of segments", Errors: ValidationErrorMalformed}
@@ -109,6 +107,18 @@ func Parse(tokenString string, keyFunc Keyfunc) (*Token, error) {
 		return token, &ValidationError{err: err.Error(), Errors: ValidationErrorMalformed}
 	}
 
+	return token, nil
+}
+
+// Parse, validate, and return a token.
+// keyFunc will receive the parsed token and should return the key for validating.
+// If everything is kosher, err will be nil
+func Parse(tokenString string, keyFunc Keyfunc) (*Token, error) {
+	token, encodingErr := ParseUnverified(tokenString)
+	if encodingErr != nil {
+		return token, encodingErr
+	}
+
 	// Lookup signature method
 	if method, ok := token.Header["alg"].(string); ok {
 		if token.Method = GetSigningMethod(method); token.Method == nil {
@@ -117,6 +127,8 @@ func Parse(tokenString string, keyFunc Keyfunc) (*Token, error) {
 	} else {
 		return token, &ValidationError{err: "signing method (alg) is unspecified.", Errors: ValidationErrorUnverifiable}
 	}
+
+	var err error
 
 	// Lookup key
 	var key interface{}
@@ -146,6 +158,7 @@ func Parse(tokenString string, keyFunc Keyfunc) (*Token, error) {
 	}
 
 	// Perform validation
+	parts := strings.Split(tokenString, ".") // FIXME splitting twice
 	if err = token.Method.Verify(strings.Join(parts[0:2], "."), parts[2], key); err != nil {
 		vErr.err = err.Error()
 		vErr.Errors |= ValidationErrorSignatureInvalid
